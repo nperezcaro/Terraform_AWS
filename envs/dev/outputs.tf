@@ -12,3 +12,14 @@ output "s3_buckets" {
     artifacts = module.s3_artifacts.bucket_id
   }
 }
+
+output "ec2_public_ip" {
+  description = "Stable EIP — use directly in your Ansible inventory."
+  value       = module.ec2.public_ip
+}
+output "ec2_private_ip" { value = module.ec2.private_ip }
+output "ec2_instance_id" { value = module.ec2.instance_id }
+output "ec2_ssh_key_secret_name" {
+  description = "SM secret name for the SSH private key. Retrieve with aws secretsmanager get-secret-value."
+  value       = module.ec2.ssh_key_secret_name
+}

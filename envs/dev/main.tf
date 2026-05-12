@@ -59,3 +59,16 @@ module "s3_artifacts" {
     noncurrent_version_expiration = 90
   }]
 }
+
+# EC2 is declared before RDS so its SG ID can be forwarded to rds.allowed_sg_ids.
+# The RDS SM read policy is attached via a standalone resource below to avoid
+# a circular module dependency (EC2 <- RDS policy ARN + RDS <- EC2 SG ID).
+module "ec2" {
+  source                      = "../../modules/ec2"
+  project                     = var.project
+  env                         = var.env
+  vpc_id                      = module.networking.vpc_id
+  subnet_id                   = module.networking.public_subnet_ids[0]
+  allowed_ssh_cidrs           = var.allowed_ssh_cidrs
+  secret_recovery_window_days = 0
+}
