@@ -96,7 +96,7 @@ resource "aws_iam_instance_profile" "ec2" {
 # ── Security Group ────────────────────────────────────────────────────────────
 resource "aws_security_group" "ec2" {
   name        = "${local.name}-sg-ec2"
-  description = "EC2 instance SG — SSH inbound, all outbound."
+  description = "EC2 instance SG - SSH inbound, all outbound."
   vpc_id      = var.vpc_id
 
   ingress {
