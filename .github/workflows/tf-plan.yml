@@ -76,7 +76,7 @@ jobs:
         id: plan
         working-directory: ${{ env.TF_DIR }}
         run: |
-          terraform plan -input=false -no-color -lock=false 2>&1 | tee plan_output.txt
+          terraform plan -input=false -no-color -lock=false -refresh=false 2>&1 | tee plan_output.txt
           exit ${PIPESTATUS[0]}
         continue-on-error: true
 
