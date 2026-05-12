@@ -13,3 +13,49 @@ module "networking" {
   enable_interface_endpoints = var.enable_interface_endpoints
   enable_flow_logs           = var.enable_flow_logs
 }
+
+module "ecr" {
+  source  = "../../modules/ecr"
+  project = var.project
+  env     = var.env
+  repositories = {
+    api    = { scan_on_push = true, max_image_count = 5 }
+    worker = { scan_on_push = true, max_image_count = 5 }
+  }
+}
+module "s3_raw" {
+  source             = "../../modules/s3"
+  project            = var.project
+  env                = var.env
+  bucket_suffix      = "raw"
+  versioning_enabled = false
+  lifecycle_rules = [{
+    id              = "expire-raw-90d"
+    enabled         = true
+    expiration_days = 90
+  }]
+}
+module "s3_processed" {
+  source             = "../../modules/s3"
+  project            = var.project
+  env                = var.env
+  bucket_suffix      = "processed"
+  versioning_enabled = true
+  lifecycle_rules = [{
+    id                            = "expire-noncurrent-90d"
+    enabled                       = true
+    noncurrent_version_expiration = 90
+  }]
+}
+module "s3_artifacts" {
+  source             = "../../modules/s3"
+  project            = var.project
+  env                = var.env
+  bucket_suffix      = "artifacts"
+  versioning_enabled = true
+  lifecycle_rules = [{
+    id                            = "expire-noncurrent-90d"
+    enabled                       = true
+    noncurrent_version_expiration = 90
+  }]
+}
