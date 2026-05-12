@@ -86,6 +86,7 @@ module "rds" {
   instance_class              = "db.t3.micro"
   allocated_storage           = 20
   multi_az                    = false
+  backup_retention_period     = 0
   secret_recovery_window_days = 0
 }
 # Attach the RDS SM read policy to the EC2 instance role here — outside both
