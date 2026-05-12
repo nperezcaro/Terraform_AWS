@@ -1,0 +1,6 @@
+---
+- name: reboot if kernel updated
+  ansible.builtin.reboot:
+    reboot_timeout: 120
+  become: true
+  listen: reboot if kernel updated

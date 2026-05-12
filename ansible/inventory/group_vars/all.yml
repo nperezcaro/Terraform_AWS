@@ -1,0 +1,11 @@
+---
+# Shared variables for all hosts.
+# Override per-environment in group_vars/env_dev.yml, env_prod.yml, etc.
+
+aws_region: us-east-1
+project: npc-awslab
+env: dev
+
+# Secrets Manager secret names — match the naming convention in modules/rds and modules/ec2.
+rds_secret_name: "{{ project }}-{{ env }}/rds/master-credentials"
+ssh_key_secret_name: "{{ project }}-{{ env }}/ec2/ssh-private-key"

@@ -1,0 +1,29 @@
+---
+# Dynamic inventory — discovers EC2 instances by tag.
+# Requires: pip install boto3 botocore  +  amazon.aws collection
+# Run manually: ansible-inventory -i inventory/aws_ec2.yml --list
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - us-east-1   # keep in sync with var.aws_region
+
+filters:
+  tag:ManagedBy: terraform
+  tag:Project: npc-awslab       # keep in sync with var.project
+  instance-state-name: running
+
+# Group instances by Environment and Project tags.
+keyed_groups:
+  - key: tags.Environment
+    prefix: env
+    separator: "_"
+  - key: tags.Project
+    prefix: project
+    separator: "_"
+
+# Use the public IP (EIP) as the connection address.
+hostnames:
+  - ip-address
+
+compose:
+  ansible_user: "'ec2-user'"

@@ -1,0 +1,15 @@
+---
+base_packages:
+  - git
+  - jq
+  - unzip
+  - postgresql15    # psql client — compatible with PG16 server
+  - python3-pip
+  - htop
+  - tmux
+
+python_packages:
+  - boto3
+  - psycopg2-binary
+  - sqlalchemy
+  - alembic

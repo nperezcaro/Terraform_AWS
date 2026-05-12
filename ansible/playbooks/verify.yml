@@ -1,0 +1,57 @@
+---
+# Standalone connectivity verification playbook.
+# Usage:
+#   ansible-playbook playbooks/verify.yml --private-key ~/.ssh/npc-awslab-dev.pem
+#
+# The EC2 instance role provides IAM credentials — no AWS keys on the host.
+
+- name: Verify Secrets Manager and RDS connectivity
+  hosts: env_dev
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Fetch DB credentials from Secrets Manager
+      ansible.builtin.shell: |
+        aws secretsmanager get-secret-value \
+          --secret-id "{{ rds_secret_name }}" \
+          --query SecretString \
+          --output text \
+          --region "{{ aws_region }}"
+      register: secret_raw
+      changed_when: false
+      no_log: true   # never print credentials in output
+
+    - name: Parse secret JSON
+      ansible.builtin.set_fact:
+        db_secret: "{{ secret_raw.stdout | from_json }}"
+      no_log: true
+
+    - name: Confirm Secrets Manager fetch succeeded
+      ansible.builtin.debug:
+        msg: "SM fetch OK — host={{ db_secret.host }}, dbname={{ db_secret.dbname }}, user={{ db_secret.username }}"
+
+    - name: Test TCP reachability to RDS on port 5432
+      ansible.builtin.wait_for:
+        host: "{{ db_secret.host }}"
+        port: 5432
+        timeout: 10
+        msg: "Cannot reach RDS on port 5432 — check security group rules"
+
+    - name: Test PostgreSQL login and run a query
+      ansible.builtin.shell: |
+        PGPASSWORD="{{ db_secret.password }}" psql \
+          --host="{{ db_secret.host }}" \
+          --port="{{ db_secret.port }}" \
+          --username="{{ db_secret.username }}" \
+          --dbname="{{ db_secret.dbname }}" \
+          --no-password \
+          --command="SELECT version();" \
+          --tuples-only
+      register: pg_result
+      changed_when: false
+      no_log: true
+
+    - name: Show PostgreSQL version
+      ansible.builtin.debug:
+        msg: "RDS connection OK — {{ pg_result.stdout | trim }}"
