@@ -23,3 +23,12 @@ output "ec2_ssh_key_secret_name" {
   description = "SM secret name for the SSH private key. Retrieve with aws secretsmanager get-secret-value."
   value       = module.ec2.ssh_key_secret_name
 }
+
+output "rds_endpoint" {
+  value     = module.rds.db_endpoint
+  sensitive = true
+}
+output "rds_security_group_id" { value = module.rds.rds_security_group_id }
+output "rds_secret_arn" { value = module.rds.db_secret_arn }
+output "rds_secret_name" { value = module.rds.db_secret_name }
+output "rds_read_secret_policy_arn" { value = module.rds.db_read_secret_policy_arn }

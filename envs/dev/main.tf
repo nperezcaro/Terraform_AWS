@@ -72,3 +72,25 @@ module "ec2" {
   allowed_ssh_cidrs           = var.allowed_ssh_cidrs
   secret_recovery_window_days = 0
 }
+
+module "rds" {
+  source             = "../../modules/rds"
+  project            = var.project
+  env                = var.env
+  vpc_id             = module.networking.vpc_id
+  private_subnet_ids = module.networking.private_subnet_ids
+  # Only the EC2 SG can reach port 5432 — no broad CIDR rules.
+  allowed_sg_ids              = [module.ec2.security_group_id]
+  db_name                     = var.db_name
+  db_username                 = var.db_username
+  instance_class              = "db.t3.micro"
+  allocated_storage           = 20
+  multi_az                    = false
+  secret_recovery_window_days = 0
+}
+# Attach the RDS SM read policy to the EC2 instance role here — outside both
+# modules — to break the otherwise circular cross-module dependency.
+resource "aws_iam_role_policy_attachment" "ec2_read_rds_secret" {
+  role       = module.ec2.iam_role_name
+  policy_arn = module.rds.db_read_secret_policy_arn
+}
