@@ -1,0 +1,118 @@
+---
+# OIDC-authenticated plan workflow.
+# Assumes the PLAN role which has ReadOnlyAccess — terraform plan only reads.
+# Trust policy in AWS restricts this role to pull_request events from this repo.
+
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "envs/dev/**"
+      - "modules/**"
+      - ".github/workflows/tf-plan.yml"
+
+permissions:
+  id-token: write       # required to mint the OIDC token
+  contents: read
+  pull-requests: write  # required to post the plan as a PR comment
+
+env:
+  TF_DIR: envs/dev
+  AWS_REGION: us-east-1
+  # ── Terraform variables ───────────────────────────────────────────────────────
+  TF_VAR_project: npc-awslab
+  TF_VAR_env: dev
+  TF_VAR_aws_region: us-east-1
+  # Networking — environment topology config; update here if CIDRs or AZs change.
+  TF_VAR_vpc_cidr: "10.0.0.0/16"
+  TF_VAR_azs: '["us-east-1a","us-east-1b"]'
+  TF_VAR_public_subnet_cidrs: '["10.0.1.0/24","10.0.2.0/24"]'
+  TF_VAR_private_subnet_cidrs: '["10.0.10.0/24","10.0.11.0/24"]'
+  TF_VAR_enable_nat_gateway: "true"
+  TF_VAR_enable_interface_endpoints: "false"
+  TF_VAR_enable_flow_logs: "true"
+  # App config — set DB_NAME and DB_USERNAME as GitHub Variables in repo settings.
+  TF_VAR_db_name: ${{ vars.DB_NAME }}
+  TF_VAR_db_username: ${{ vars.DB_USERNAME }}
+  # SSH — open for CI; Ansible authenticates with the SM-stored key pair, not a password.
+  TF_VAR_allowed_ssh_cidrs: '["0.0.0.0/0"]'
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          role-session-name: github-actions-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version_file: .terraform-version
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform plan -input=false -no-color -lock=false 2>&1 | tee plan_output.txt
+          exit ${PIPESTATUS[0]}
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs   = require('fs');
+            const raw  = fs.readFileSync('${{ env.TF_DIR }}/plan_output.txt', 'utf8');
+            const plan = raw.length > 60000
+              ? raw.substring(0, 60000) + '\n\n...(truncated — see Actions log)'
+              : raw;
+            const outcome = '${{ steps.plan.outcome }}';
+            const icon    = outcome === 'success' ? '✅' : '❌';
+
+            const body = [
+              `#### ${icon} Terraform Plan — \`${outcome}\``,
+              '',
+              '<details><summary>Show Plan</summary>',
+              '',
+              '```hcl',
+              plan,
+              '```',
+              '',
+              '</details>',
+              '',
+              `*Triggered by @${{ github.actor }} on \`${{ github.event_name }}\`*`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

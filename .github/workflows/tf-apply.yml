@@ -1,0 +1,101 @@
+---
+# OIDC-authenticated apply workflow.
+# Assumes the APPLY role which has AdministratorAccess.
+# Trust policy in AWS restricts this role to jobs running under the `dev` environment.
+# The `environment:` block below is what makes that work — without it, OIDC fails.
+
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "envs/dev/**"
+      - "modules/**"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'apply' to confirm"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_DIR: envs/dev
+  AWS_REGION: us-east-1
+  # ── Terraform variables ───────────────────────────────────────────────────────
+  TF_VAR_project: npc-awslab
+  TF_VAR_env: dev
+  TF_VAR_aws_region: us-east-1
+  TF_VAR_vpc_cidr: "10.0.0.0/16"
+  TF_VAR_azs: '["us-east-1a","us-east-1b"]'
+  TF_VAR_public_subnet_cidrs: '["10.0.1.0/24","10.0.2.0/24"]'
+  TF_VAR_private_subnet_cidrs: '["10.0.10.0/24","10.0.11.0/24"]'
+  TF_VAR_enable_nat_gateway: "true"
+  TF_VAR_enable_interface_endpoints: "false"
+  TF_VAR_enable_flow_logs: "true"
+  TF_VAR_db_name: ${{ vars.DB_NAME }}
+  TF_VAR_db_username: ${{ vars.DB_USERNAME }}
+  TF_VAR_allowed_ssh_cidrs: '["0.0.0.0/0"]'
+
+jobs:
+  apply:
+    name: Apply
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.confirm == 'apply'
+
+    # ── CRITICAL FOR OIDC ──
+    # This must match var.apply_environment in bootstrap/github-oidc.
+    # The OIDC token's `sub` claim will include "environment:dev", which is
+    # what the IAM role trust policy validates.
+    environment:
+      name: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_APPLY_ROLE_ARN }}
+          role-session-name: github-actions-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version_file: .terraform-version
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false -no-color tfplan
+
+      - name: Capture outputs
+        id: tf_outputs
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          {
+            echo "ec2_public_ip=$(terraform output -raw ec2_public_ip)"
+            echo "ec2_ssh_key_secret_name=$(terraform output -raw ec2_ssh_key_secret_name)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Apply Complete ✅"
+            echo "| Output | Value |"
+            echo "|--------|-------|"
+            echo "| EC2 Public IP | \`${{ steps.tf_outputs.outputs.ec2_public_ip }}\` |"
+            echo "| SSH Key Secret | \`${{ steps.tf_outputs.outputs.ec2_ssh_key_secret_name }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

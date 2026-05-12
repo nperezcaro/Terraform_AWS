@@ -1,0 +1,10 @@
+project    = "npc-awslab"
+aws_region = "us-east-1"
+
+github_org  = "nperezcaro"
+github_repo = "Terraform_AWS"
+
+apply_environment = "dev"
+
+# Default plan_policy_arns: ReadOnlyAccess — enough for terraform plan
+# Default apply_policy_arns: AdministratorAccess — scope down once stable

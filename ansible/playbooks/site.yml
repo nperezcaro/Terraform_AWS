@@ -1,0 +1,23 @@
+---
+# Master playbook — runs all roles in order.
+# Usage:
+#   ansible-playbook playbooks/site.yml --private-key ~/.ssh/npc-awslab-dev.pem
+#   ansible-playbook playbooks/site.yml --private-key ~/.ssh/npc-awslab-dev.pem --tags verify
+
+- name: Base setup
+  hosts: env_dev
+  gather_facts: true
+  become: false
+
+  roles:
+    - role: base
+
+- name: Verify connectivity
+  hosts: env_dev
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Run connectivity checks
+      ansible.builtin.include_tasks: verify.yml
+      tags: verify

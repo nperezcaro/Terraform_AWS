@@ -1,0 +1,97 @@
+---
+# Ansible deploy workflow.
+# Reuses the APPLY role since this also gets triggered post-merge and needs
+# read access to SM (for SSH key) and EC2 (for dynamic inventory).
+# Same `environment: dev` gate applies.
+
+name: Ansible Deploy
+
+on:
+  workflow_run:
+    workflows: ["Terraform Apply"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      playbook:
+        description: "Playbook to run (relative to ansible/playbooks/)"
+        required: true
+        default: site.yml
+        type: choice
+        options:
+          - site.yml
+          - verify.yml
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT: npc-awslab
+  ENV: dev
+  ANSIBLE_DIR: ansible
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    # Same environment as tf-apply so the OIDC `sub` claim matches the trust policy.
+    environment:
+      name: dev
+
+    defaults:
+      run:
+        working-directory: ansible
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_APPLY_ROLE_ARN }}
+          role-session-name: github-actions-ansible-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Ansible and dependencies
+        run: pip install --upgrade ansible boto3 botocore
+
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Retrieve SSH private key from Secrets Manager
+        run: |
+          aws secretsmanager get-secret-value \
+            --secret-id "${PROJECT}-${ENV}/ec2/ssh-private-key" \
+            --query SecretString \
+            --output text \
+            --region "$AWS_REGION" \
+            > /tmp/ec2_key.pem
+          chmod 600 /tmp/ec2_key.pem
+
+      - name: Verify dynamic inventory resolves at least one host
+        run: |
+          COUNT=$(ansible-inventory \
+            -i inventory/aws_ec2.yml \
+            --list 2>/dev/null \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('_meta',{}).get('hostvars',{})))")
+          echo "Discovered ${COUNT} host(s)"
+          [ "$COUNT" -gt 0 ] || { echo "No hosts found — check tags and instance state"; exit 1; }
+
+      - name: Run Ansible playbook
+        run: |
+          PLAYBOOK="${{ github.event.inputs.playbook || 'site.yml' }}"
+          ansible-playbook \
+            "playbooks/${PLAYBOOK}" \
+            --private-key /tmp/ec2_key.pem \
+            -v
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f /tmp/ec2_key.pem
